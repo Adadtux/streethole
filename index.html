@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="pt-BR" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registro de Buracos</title>
+  <script src="/_sdk/element_sdk.js"></script>
+  <script src="/_sdk/data_sdk.js"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&amp;family=Space+Mono:wght@700&amp;display=swap" rel="stylesheet">
+  <style>
+  * { box-sizing: border-box; }
+  body { font-family: 'DM Sans', sans-serif; margin: 0; }
+  .font-display { font-family: 'Space Mono', monospace; }
+  #map { width: 100%; height: 100%; min-height: 300px; }
+  .tab-active { background: var(--clr-primary); color: #fff; }
+  .tab-inactive { background: var(--clr-surface); color: var(--clr-text); }
+  .fade-in { animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse-marker { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.15); opacity: 0.7; } }
+  .pulse-animation { animation: pulse-marker 2s infinite; }
+  .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+  .card-hover { transition: all 0.2s ease; }
+  :root {
+    --clr-bg: #0f1923;
+    --clr-surface: #1a2735;
+    --clr-text: #e8eff5;
+    --clr-primary: #f97316;
+    --clr-secondary: #3b82f6;
+  }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    padding: 12px 24px; border-radius: 12px; z-index: 9999;
+    animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
+  }
+  @keyframes toastIn { from { opacity:0; transform: translateX(-50%) translateY(20px); } to { opacity:1; transform: translateX(-50%) translateY(0); } }
+  @keyframes toastOut { to { opacity:0; transform: translateX(-50%) translateY(20px); } }
+  .severity-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .leaflet-popup-content-wrapper { border-radius: 12px !important; }
+  .confirm-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9998;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } }
+  .pulse-marker { animation: pulse-marker 2s infinite; }
+</style>
+  <style>body { box-sizing: border-box; }</style>
+ </head>
+ <body class="h-full" style="background:var(--clr-bg); color:var(--clr-text);">
+  <div id="app" class="h-full flex flex-col w-full overflow-auto"><!-- Welcome Page -->
+   <div id="page-welcome" class="flex-1 flex items-center justify-center p-4" style="background:linear-gradient(135deg, var(--clr-bg) 0%, #1a3a4a 100%);">
+    <div class="max-w-sm w-full text-center fade-in">
+     <div class="w-20 h-20 rounded-2xl flex items-center justify-center text-5xl mx-auto mb-6" style="background:var(--clr-primary);">
+      🕳️
+     </div>
+     <h1 class="font-display text-3xl mb-2" style="color:var(--clr-primary);">BURACO NA VIA</h1>
+     <p class="text-sm opacity-70 mb-8">Registre e acompanhe buracos na sua cidade</p>
+     <div class="space-y-3">
+      <button onclick="goToUserApp()" class="w-full py-4 rounded-xl font-bold text-sm transition-all hover:opacity-90" style="background:var(--clr-primary); color:#fff; display:flex; align-items:center; justify-content:center; gap:0.5rem;"> <i data-lucide="map-pin" style="width:18px;height:18px;"></i> Sou Visitante </button> <button onclick="goToAdminLogin()" class="w-full py-4 rounded-xl font-bold text-sm transition-all hover:opacity-90" style="background:var(--clr-secondary); color:#fff; display:flex; align-items:center; justify-content:center; gap:0.5rem;"> <i data-lucide="lock" style="width:18px;height:18px;"></i> Sou Admin </button>
+     </div>
+    </div>
+   </div><!-- Login Page -->
+   <div id="page-login" class="flex-1 flex items-center justify-center p-4" style="background:linear-gradient(135deg, var(--clr-bg) 0%, #1a3a4a 100%); display:none;">
+    <div class="max-w-sm w-full text-center fade-in">
+     <div class="w-16 h-16 rounded-2xl flex items-center justify-center text-4xl mx-auto mb-4" style="background:var(--clr-primary);">
+      🔐
+     </div>
+     <h1 class="font-display text-2xl mb-2" style="color:var(--clr-primary);">ACESSO ADMIN</h1>
+     <p class="text-sm opacity-70 mb-6">Insira a senha para acessar o painel de administração</p><input id="admin-password" type="password" placeholder="Senha" class="w-full px-4 py-3 rounded-xl text-sm outline-none focus:ring-2 mb-4" style="background:var(--clr-surface); color:var(--clr-text); border:1px solid rgba(255,255,255,0.1);"> <button onclick="verifyAdminPassword()" class="w-full py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90 mb-2" style="background:var(--clr-primary); color:#fff;">Entrar</button> <button onclick="backToWelcome()" class="w-full py-3 rounded-xl font-bold text-sm transition-all opacity-60 hover:opacity-100" style="background:var(--clr-surface); color:var(--clr-text);">Voltar</button>
+    </div>
+   </div><!-- Main App -->
+   <div id="main-app" style="display:none;" class="h-full flex flex-col w-full overflow-auto"><!-- Header -->
+    <header class="px-4 py-4 flex items-center justify-between flex-shrink-0" style="background:var(--clr-surface); border-bottom: 2px solid var(--clr-primary);">
+     <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style="background:var(--clr-primary);">
+       🕳️
+      </div>
+      <div>
+       <h1 id="app-title" class="font-display text-lg leading-tight" style="color:var(--clr-primary);">BURACO NA VIA</h1>
+       <p id="app-subtitle" class="text-xs opacity-70">Registre e acompanhe buracos na sua cidade</p>
+      </div>
+     </div><button id="admin-btn" onclick="openAdminLogin()" class="p-2 rounded-lg transition-all hover:opacity-75" title="Admin" style="background:var(--clr-surface);"> <i data-lucide="lock" style="width:20px;height:20px;"></i> </button>
+    </header><!-- Tabs -->
+    <nav class="flex gap-1 p-2 flex-shrink-0" style="background:var(--clr-surface);"><button onclick="switchTab('map')" id="tab-map" class="tab-active flex-1 py-2 px-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-1 transition-all"> <i data-lucide="map-pin" style="width:16px;height:16px;"></i> Mapa </button> <button onclick="switchTab('register')" id="tab-register" class="tab-inactive flex-1 py-2 px-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-1 transition-all"> <i data-lucide="plus-circle" style="width:16px;height:16px;"></i> Registrar </button>
+    </nav><!-- Map Page -->
+    <div id="page-map" class="flex-1 relative" style="min-height:0;">
+     <div id="map"></div>
+     <div id="map-empty" class="absolute inset-0 flex items-center justify-center pointer-events-none" style="display:none;">
+      <div class="text-center opacity-60 p-4">
+       <div class="text-4xl mb-2">
+        🗺️
+       </div>
+       <p class="text-sm">Nenhum buraco aprovado ainda.<br>
+         Registre o primeiro!</p>
+      </div>
+     </div>
+    </div><!-- Register Page -->
+    <div id="page-register" class="flex-1 overflow-auto p-4" style="display:none;">
+     <div class="max-w-lg mx-auto fade-in">
+      <h2 class="font-display text-xl mb-4" style="color:var(--clr-primary);">📍 Novo Registro</h2>
+      <form id="register-form" class="space-y-4">
+       <div><label for="f-name" class="block text-sm font-medium mb-1 opacity-80">Seu nome</label> <input id="f-name" type="text" required placeholder="João Silva" class="w-full px-4 py-3 rounded-xl text-sm outline-none focus:ring-2" style="background:var(--clr-surface); color:var(--clr-text); border:1px solid rgba(255,255,255,0.1);">
+       </div>
+       <div><label for="f-email" class="block text-sm font-medium mb-1 opacity-80">Email</label> <input id="f-email" type="email" required placeholder="joao@email.com" class="w-full px-4 py-3 rounded-xl text-sm outline-none focus:ring-2" style="background:var(--clr-surface); color:var(--clr-text); border:1px solid rgba(255,255,255,0.1);">
+       </div>
+       <div class="space-y-3 p-3 rounded-xl" style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06);">
+        <p class="text-sm font-medium opacity-80">Localização do Buraco</p>
+        <div><label for="f-street" class="block text-xs font-medium mb-1 opacity-70">Rua *</label> <input id="f-street" type="text" required placeholder="Rua das Flores" class="w-full px-3 py-2 rounded-lg text-sm outline-none focus:ring-2" style="background:var(--clr-surface); color:var(--clr-text); border:1px solid rgba(255,255,255,0.1);">
+        </div>
+        <div class="two-col">
+         <div><label for="f-number" class="block text-xs font-medium mb-1 opacity-70">Número *</label> <input id="f-number" type="text" required placeholder="123" class="w-full px-3 py-2 rounded-lg text-sm outline-none focus:ring-2" style="background:var(--clr-surface); color:var(--clr-text); border:1px solid rgba(255,255,255,0.1);">
+         </div>
+         <div><label for="f-neighborhood" class="block text-xs font-medium mb-1 opacity-70">Bairro *</label> <input id="f-neighborhood" type="text" required placeholder="Centro" class="w-full px-3 py-2 rounded-lg text-sm outline-none focus:ring-2" style="background:var(--clr-surface); color:var(--clr-text); border:1px solid rgba(255,255,255,0.1);">
+         </div>
+        </div>
+        <div class="two-col">
+         <div><label for="f-city" class="block text-xs font-medium mb-1 opacity-70">Cidade *</label> <select id="f-city" required class="w-full px-3 py-2 rounded-lg text-sm outline-none focus:ring-2" style="background:var(--clr-surface); color:var(--clr-text); border:1px solid rgba(255,255,255,0.1);"><option value="">Selecione...</option><option value="Teresina">Teresina</option><option value="Timon">Timon</option></select>
+         </div>
+         <div><label for="f-state" class="block text-xs font-medium mb-1 opacity-70">Estado *</label> <select id="f-state" required class="w-full px-3 py-2 rounded-lg text-sm outline-none focus:ring-2" style="background:var(--clr-surface); color:var(--clr-text); border:1px solid rgba(255,255,255,0.1);"><option value="">Selecione...</option><option value="PI">PI</option><option value="MA">MA</option></select>
+         </div>
+        </div>
+        <div><label for="f-zipcode" class="block text-xs font-medium mb-1 opacity-70">CEP</label> <input id="f-zipcode" type="text" placeholder="64000-000" class="w-full px-3 py-2 rounded-lg text-sm outline-none focus:ring-2" style="background:var(--clr-surface); color:var(--clr-text); border:1px solid rgba(255,255,255,0.1);">
+        </div>
+       </div>
+       <div><label class="block text-sm font-medium mb-1 opacity-80">Gravidade</label>
+        <div class="flex gap-2"><label class="flex-1 cursor-pointer"> <input type="radio" name="severity" value="leve" class="hidden peer">
+          <div class="peer-checked:ring-2 peer-checked:ring-green-400 text-center py-2 rounded-xl text-sm font-medium" style="background:var(--clr-surface);">
+           🟢 Leve
+          </div></label> <label class="flex-1 cursor-pointer"> <input type="radio" name="severity" value="moderado" checked class="hidden peer">
+          <div class="peer-checked:ring-2 peer-checked:ring-yellow-400 text-center py-2 rounded-xl text-sm font-medium" style="background:var(--clr-surface);">
+           🟡 Moderado
+          </div></label> <label class="flex-1 cursor-pointer"> <input type="radio" name="severity" value="grave" class="hidden peer">
+          <div class="peer-checked:ring-2 peer-checked:ring-red-400 text-center py-2 rounded-xl text-sm font-medium" style="background:var(--clr-surface);">
+           🔴 Grave
+          </div></label>
+        </div>
+       </div>
+       <div><button type="button" onclick="useMyLocation()" class="w-full py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all hover:opacity-80" style="background:var(--clr-secondary); color:#fff;"> <i data-lucide="navigation" style="width:16px;height:16px;"></i> Usar minha localização </button>
+        <p id="loc-status" class="text-xs mt-1 opacity-60 text-center"></p>
+       </div><input type="hidden" id="f-lat" value=""> <input type="hidden" id="f-lng" value=""> <button type="submit" id="submit-btn" class="w-full py-3 rounded-xl font-bold text-sm transition-all hover:opacity-90" style="background:var(--clr-primary); color:#fff;"> Enviar Registro </button>
+      </form>
+     </div>
+    </div>
+   </div>
+  </div><!-- Confirm Dialog Container -->
+  <div id="confirm-dialog" style="display:none;"></div><!-- Admin Panel Page -->
+  <div id="page-admin-panel" class="h-full flex flex-col w-full overflow-auto" style="display:none;">
+   <header class="px-4 py-4 flex items-center justify-between flex-shrink-0" style="background:var(--clr-surface); border-bottom: 2px solid var(--clr-primary);">
+    <div class="flex items-center gap-3">
+     <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl" style="background:var(--clr-primary);">
+      🛠️
+     </div>
+     <div>
+      <h1 class="font-display text-lg leading-tight" style="color:var(--clr-primary);">PAINEL ADMIN</h1>
+      <p class="text-xs opacity-70">Gerencie os registros de buracos</p>
+     </div>
+    </div><button onclick="logoutAdmin()" class="p-2 rounded-lg transition-all hover:opacity-75" style="background:var(--clr-surface);"> <i data-lucide="log-out" style="width:20px;height:20px;"></i> </button>
+   </header>
+   <nav class="flex gap-1 p-2 flex-shrink-0" style="background:var(--clr-surface);"><button onclick="setAdminFilter('pendente')" id="af-pendente" class="flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all" style="background:var(--clr-primary);color:#fff;">⏳ Pendentes</button> <button onclick="setAdminFilter('aprovado')" id="af-aprovado" class="flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all" style="background:var(--clr-surface);color:var(--clr-text);">✓ Aprovados</button> <button onclick="setAdminFilter('todos')" id="af-todos" class="flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all" style="background:var(--clr-surface);color:var(--clr-text);">📋 Todos</button>
+   </nav>
+   <div class="flex-1 overflow-auto p-4">
+    <div class="max-w-2xl mx-auto">
+     <div id="admin-list" class="space-y-3"></div>
+     <div id="admin-empty" class="text-center py-12 opacity-50" style="display:none;">
+      <div class="text-3xl mb-2">
+       📋
+      </div>
+      <p class="text-sm">Nenhum registro encontrado</p>
+     </div>
+    </div>
+   </div>
+  </div>
+  <script>
+  // ---- State ----
+  let allRecords = [];
+  let map, markersLayer;
+  let currentTab = 'map';
+  let adminFilter = 'pendente';
+  let userLat = null, userLng = null;
+  let isAdminLogged = false;
+  const ADMIN_PASSWORD = '1234'; // Senha fake para admin
+
+  // Teresina center: -5.0902° S, -42.5343° W
+  // Map bounds 40km around Teresina
+  const TERESINA_LAT = -5.0902;
+  const TERESINA_LNG = -42.5343;
+  const MAP_RADIUS_KM = 40;
+
+  const defaultConfig = {
+    app_title: 'BURACO NA VIA',
+    subtitle: 'Registre e acompanhe buracos na sua cidade',
+    background_color: '#0f1923',
+    surface_color: '#1a2735',
+    text_color: '#e8eff5',
+    primary_color: '#f97316',
+    secondary_color: '#3b82f6',
+    font_family: 'DM Sans',
+    font_size: 14
+  };
+
+  // ---- Element SDK ----
+  window.elementSdk.init({
+    defaultConfig,
+    onConfigChange: async (config) => {
+      const bg = config.background_color || defaultConfig.background_color;
+      const sf = config.surface_color || defaultConfig.surface_color;
+      const tx = config.text_color || defaultConfig.text_color;
+      const pr = config.primary_color || defaultConfig.primary_color;
+      const sc = config.secondary_color || defaultConfig.secondary_color;
+      const ff = config.font_family || defaultConfig.font_family;
+      const fs = config.font_size || defaultConfig.font_size;
+
+      document.documentElement.style.setProperty('--clr-bg', bg);
+      document.documentElement.style.setProperty('--clr-surface', sf);
+      document.documentElement.style.setProperty('--clr-text', tx);
+      document.documentElement.style.setProperty('--clr-primary', pr);
+      document.documentElement.style.setProperty('--clr-secondary', sc);
+      document.body.style.background = bg;
+      document.body.style.color = tx;
+      document.body.style.fontFamily = `${ff}, DM Sans, sans-serif`;
+      document.body.style.fontSize = `${fs}px`;
+
+      document.getElementById('app-title').textContent = config.app_title || defaultConfig.app_title;
+      document.getElementById('app-subtitle').textContent = config.subtitle || defaultConfig.subtitle;
+
+      document.querySelectorAll('.tab-active').forEach(el => { el.style.background = pr; });
+    },
+    mapToCapabilities: (config) => ({
+      recolorables: [
+        { get: () => config.background_color || defaultConfig.background_color, set: (v) => { config.background_color = v; window.elementSdk.setConfig({ background_color: v }); } },
+        { get: () => config.surface_color || defaultConfig.surface_color, set: (v) => { config.surface_color = v; window.elementSdk.setConfig({ surface_color: v }); } },
+        { get: () => config.text_color || defaultConfig.text_color, set: (v) => { config.text_color = v; window.elementSdk.setConfig({ text_color: v }); } },
+        { get: () => config.primary_color || defaultConfig.primary_color, set: (v) => { config.primary_color = v; window.elementSdk.setConfig({ primary_color: v }); } },
+        { get: () => config.secondary_color || defaultConfig.secondary_color, set: (v) => { config.secondary_color = v; window.elementSdk.setConfig({ secondary_color: v }); } },
+      ],
+      borderables: [],
+      fontEditable: { get: () => config.font_family || defaultConfig.font_family, set: (v) => { config.font_family = v; window.elementSdk.setConfig({ font_family: v }); } },
+      fontSizeable: { get: () => config.font_size || defaultConfig.font_size, set: (v) => { config.font_size = v; window.elementSdk.setConfig({ font_size: v }); } },
+    }),
+    mapToEditPanelValues: (config) => new Map([
+      ['app_title', config.app_title || defaultConfig.app_title],
+      ['subtitle', config.subtitle || defaultConfig.subtitle],
+    ])
+  });
+
+  // ---- Data SDK ----
+  const dataHandler = {
+    onDataChanged(data) {
+      allRecords = data;
+      renderMap();
+      renderAdmin();
+    }
+  };
+
+  (async () => {
+    const r = await window.dataSdk.init(dataHandler);
+    if (!r.isOk) console.error('Data SDK init failed');
+  })();
+
+  // ---- Map ----
+  function initMap() {
+    map = L.map('map', { zoomControl: true }).setView([TERESINA_LAT, TERESINA_LNG], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+    markersLayer = L.layerGroup().addTo(map);
+    
+    // Draw approximate boundary circle
+    const circle = L.circle([TERESINA_LAT, TERESINA_LNG], {
+      radius: MAP_RADIUS_KM * 1000,
+      color: 'rgba(249, 115, 22, 0.2)',
+      fill: false,
+      weight: 2,
+      dashArray: '5, 5'
+    }).addTo(map);
+  }
+
+  function getSeverityIcon(sev) {
+    const colors = { leve: '#22c55e', moderado: '#eab308', grave: '#ef4444' };
+    const color = colors[sev] || '#eab308';
+    return L.divIcon({
+      className: '',
+      html: `<div style="width:32px;height:32px;border-radius:50%;background:${color};border:4px solid #fff;box-shadow:0 0 0 2px ${color}40, 0 4px 12px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;animation:pulse-marker 2s infinite;"></div>`,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+  }
+
+  function renderMap() {
+    if (!markersLayer) return;
+    markersLayer.clearLayers();
+    const approved = allRecords.filter(r => r.status === 'aprovado' && r.lat && r.lng);
+    document.getElementById('map-empty').style.display = approved.length === 0 ? 'flex' : 'none';
+    
+    approved.forEach(r => {
+      const sevLabel = { leve: '🟢 Leve', moderado: '🟡 Moderado', grave: '🔴 Grave' };
+      const addr = `${r.street || ''} ${r.number || ''}, ${r.neighborhood || ''}`.trim();
+      const marker = L.marker([r.lat, r.lng], { icon: getSeverityIcon(r.severity) });
+      marker.bindPopup(`
+        <div style="font-family:DM Sans,sans-serif;min-width:200px;">
+          <strong style="font-size:14px;">${addr || 'Sem endereço'}</strong><br>
+          <span style="font-size:12px;color:#666;">👤 ${r.user_name}</span><br>
+          <span style="font-size:12px;">📧 ${r.email}</span><br>
+          <span style="font-size:12px;">${sevLabel[r.severity] || r.severity}</span><br>
+          <span style="font-size:11px;color:#999;">${r.zipcode ? r.zipcode + ' - ' : ''}${r.city || ''} - ${r.state || ''}</span><br>
+          <span style="font-size:11px;color:#999;">${new Date(r.created_at).toLocaleDateString('pt-BR')}</span>
+        </div>
+      `);
+      marker.addTo(markersLayer);
+    });
+    
+    if (approved.length > 0) {
+      const bounds = L.latLngBounds(approved.map(r => [r.lat, r.lng]));
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
+    }
+  }
+
+  // ---- Admin Auth ----
+  function openAdminLogin() {
+    document.getElementById('page-login').style.display = 'flex';
+  }
+
+  function verifyAdminPassword() {
+    const pwd = document.getElementById('admin-password').value;
+    if (pwd === ADMIN_PASSWORD) {
+      isAdminLogged = true;
+      document.getElementById('page-welcome').style.display = 'none';
+      document.getElementById('page-login').style.display = 'none';
+      document.getElementById('main-app').style.display = 'none';
+      document.getElementById('page-admin-panel').style.display = 'flex';
+      document.getElementById('admin-password').value = '';
+      renderAdmin();
+    } else {
+      showToast('Senha incorreta!', 'red');
+      document.getElementById('admin-password').value = '';
+    }
+  }
+
+  function goToUserApp() {
+    document.getElementById('page-welcome').style.display = 'none';
+    document.getElementById('page-login').style.display = 'none';
+    document.getElementById('main-app').style.display = 'flex';
+    document.getElementById('page-admin-panel').style.display = 'none';
+    switchTab('map');
+    setTimeout(() => map.invalidateSize(), 100);
+  }
+
+  function goToAdminLogin() {
+    document.getElementById('page-welcome').style.display = 'none';
+    document.getElementById('page-login').style.display = 'flex';
+    document.getElementById('main-app').style.display = 'none';
+    document.getElementById('page-admin-panel').style.display = 'none';
+  }
+
+  function backToWelcome() {
+    document.getElementById('page-welcome').style.display = 'flex';
+    document.getElementById('page-login').style.display = 'none';
+    document.getElementById('main-app').style.display = 'none';
+    document.getElementById('page-admin-panel').style.display = 'none';
+    document.getElementById('admin-password').value = '';
+  }
+
+  function switchToUser() {
+    document.getElementById('page-welcome').style.display = 'flex';
+    document.getElementById('page-login').style.display = 'none';
+    document.getElementById('main-app').style.display = 'none';
+    document.getElementById('page-admin-panel').style.display = 'none';
+  }
+
+  function openAdminLogin() {
+    goToAdminLogin();
+  }
+
+  function logoutAdmin() {
+    isAdminLogged = false;
+    document.getElementById('page-admin-panel').style.display = 'none';
+    document.getElementById('page-welcome').style.display = 'flex';
+    document.getElementById('admin-password').value = '';
+  }
+
+  // ---- Tabs ----
+  function switchTab(tab) {
+    currentTab = tab;
+    ['map', 'register'].forEach(t => {
+      document.getElementById(`page-${t}`).style.display = t === tab ? '' : 'none';
+      const btn = document.getElementById(`tab-${t}`);
+      if (btn) {
+        btn.className = t === tab
+          ? 'tab-active flex-1 py-2 px-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-1 transition-all'
+          : 'tab-inactive flex-1 py-2 px-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-1 transition-all';
+      }
+    });
+    if (tab === 'map') setTimeout(() => map.invalidateSize(), 100);
+  }
+
+  // ---- Register ----
+  document.getElementById('register-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (allRecords.length >= 999) { showToast('Limite de registros atingido!', 'red'); return; }
+    
+    const addr = `${document.getElementById('f-street').value} ${document.getElementById('f-number').value}, ${document.getElementById('f-neighborhood').value}`.trim();
+    const sev = document.querySelector('input[name="severity"]:checked')?.value || 'moderado';
+    const sevLabels = { leve: '🟢 Leve', moderado: '🟡 Moderado', grave: '🔴 Grave' };
+    
+    showConfirmDialog(
+      'Confirmar Registro?',
+      `<div style="font-size:13px;line-height:1.6;">
+        <p><strong>📍 Local:</strong> ${addr}</p>
+        <p><strong>👤 Nome:</strong> ${document.getElementById('f-name').value}</p>
+        <p><strong>📧 Email:</strong> ${document.getElementById('f-email').value}</p>
+        <p><strong>⚠️ Gravidade:</strong> ${sevLabels[sev]}</p>
+      </div>`,
+      async () => {
+        const btn = document.getElementById('submit-btn');
+        btn.disabled = true; btn.textContent = 'Enviando...';
+
+        let lat = parseFloat(document.getElementById('f-lat').value);
+        let lng = parseFloat(document.getElementById('f-lng').value);
+
+        // Se tiver CEP, tentar geocodificar
+        const zipcode = document.getElementById('f-zipcode').value.trim();
+        if (zipcode && (!lat || !lng)) {
+          const geo = await geocodeZipcode(zipcode);
+          if (geo) { lat = geo.lat; lng = geo.lng; }
+        }
+
+        // Fallback para localização do usuário ou Teresina
+        if (!lat || !lng) {
+          lat = userLat || (TERESINA_LAT + (Math.random() - 0.5) * 0.3);
+          lng = userLng || (TERESINA_LNG + (Math.random() - 0.5) * 0.3);
+        }
+
+        const result = await window.dataSdk.create({
+          user_name: document.getElementById('f-name').value,
+          email: document.getElementById('f-email').value,
+          street: document.getElementById('f-street').value,
+          number: document.getElementById('f-number').value,
+          neighborhood: document.getElementById('f-neighborhood').value,
+          city: document.getElementById('f-city').value,
+          state: document.getElementById('f-state').value,
+          zipcode: zipcode,
+          lat, lng,
+          severity: sev,
+          status: 'pendente',
+          created_at: new Date().toISOString()
+        });
+
+        btn.disabled = false; btn.textContent = 'Enviar Registro';
+        if (result.isOk) {
+          showToast('Registro enviado! Aguardando aprovação.', 'green');
+          e.target.reset();
+          document.getElementById('f-lat').value = '';
+          document.getElementById('f-lng').value = '';
+          document.getElementById('loc-status').textContent = '';
+        } else {
+          showToast('Erro ao enviar. Tente novamente.', 'red');
+        }
+      }
+    );
+  });
+
+  function useMyLocation() {
+    const status = document.getElementById('loc-status');
+    if (!navigator.geolocation) { status.textContent = 'Geolocalização não suportada'; return; }
+    status.textContent = 'Obtendo localização...';
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        userLat = pos.coords.latitude;
+        userLng = pos.coords.longitude;
+        document.getElementById('f-lat').value = userLat;
+        document.getElementById('f-lng').value = userLng;
+        status.textContent = `📍 ${userLat.toFixed(4)}, ${userLng.toFixed(4)}`;
+      },
+      () => { status.textContent = 'Não foi possível obter a localização'; }
+    );
+  }
+
+  // ---- Admin ----
+  function setAdminFilter(f) {
+    adminFilter = f;
+    ['pendente', 'aprovado', 'todos'].forEach(t => {
+      const btn = document.getElementById(`af-${t}`);
+      if (btn) {
+        if (t === f) { btn.style.background = 'var(--clr-primary)'; btn.style.color = '#fff'; }
+        else { btn.style.background = 'var(--clr-surface)'; btn.style.color = 'var(--clr-text)'; }
+      }
+    });
+    renderAdmin();
+  }
+
+  function renderAdmin() {
+    const container = document.getElementById('admin-list');
+    const filtered = adminFilter === 'todos' ? allRecords : allRecords.filter(r => r.status === adminFilter);
+    const emptyEl = document.getElementById('admin-empty');
+
+    if (filtered.length === 0) {
+      container.innerHTML = '';
+      emptyEl.style.display = 'block';
+      return;
+    }
+    emptyEl.style.display = 'none';
+
+    const existingIds = new Map([...container.children].map(el => [el.dataset.rid, el]));
+    const newIds = new Set(filtered.map(r => r.__backendId));
+
+    existingIds.forEach((el, id) => { if (!newIds.has(id)) el.remove(); });
+
+    filtered.forEach((r) => {
+      const id = r.__backendId;
+      let el = container.querySelector(`[data-rid="${id}"]`);
+      if (!el) {
+        el = document.createElement('div');
+        el.dataset.rid = id;
+        el.className = 'card-hover rounded-xl p-4 fade-in';
+        el.style.background = 'var(--clr-surface)';
+        el.style.border = '1px solid rgba(255,255,255,0.06)';
+        container.appendChild(el);
+      }
+      const sevColors = { leve: '#22c55e', moderado: '#eab308', grave: '#ef4444' };
+      const sevLabels = { leve: 'Leve', moderado: 'Moderado', grave: 'Grave' };
+      const statusBadge = r.status === 'aprovado'
+        ? '<span class="severity-badge" style="background:#22c55e22;color:#22c55e;">✓ Aprovado</span>'
+        : '<span class="severity-badge" style="background:#eab30822;color:#eab308;">⏳ Pendente</span>';
+      const addr = `${r.street || ''} ${r.number || ''}, ${r.neighborhood || ''}`.trim();
+
+      el.innerHTML = `
+        <div class="flex justify-between items-start mb-2">
+          <div>
+            <p class="font-semibold text-sm">${r.user_name || 'Anônimo'}</p>
+            <p class="text-xs opacity-50">${r.email || ''}</p>
+          </div>
+          ${statusBadge}
+        </div>
+        <p class="text-sm opacity-80 mb-1">📍 ${addr || 'Sem endereço'}</p>
+        <p class="text-xs opacity-60 mb-3">${r.zipcode ? r.zipcode + ' - ' : ''}${r.city || ''}, ${r.state || ''}</p>
+        <div class="flex items-center gap-2 mb-3">
+          <span class="severity-badge" style="background:${sevColors[r.severity] || '#eab308'}22;color:${sevColors[r.severity] || '#eab308'};">${sevLabels[r.severity] || r.severity}</span>
+          <span class="text-xs opacity-40">${r.created_at ? new Date(r.created_at).toLocaleDateString('pt-BR') : ''}</span>
+        </div>
+        <div class="flex gap-2">
+          ${r.status === 'pendente' ? `<button onclick="approveRecord('${id}')" class="flex-1 py-2 rounded-lg text-xs font-bold hover:opacity-80 transition-all" style="background:var(--clr-primary);color:#fff;">✓ Aprovar</button>` : ''}
+          <button onclick="confirmDelete('${id}')" class="flex-1 py-2 rounded-lg text-xs font-bold hover:opacity-80 transition-all" style="background:#ef444433;color:#ef4444;">✕ Excluir</button>
+        </div>
+      `;
+    });
+  }
+
+  async function approveRecord(backendId) {
+    const record = allRecords.find(r => r.__backendId === backendId);
+    if (!record) return;
+    const updated = { ...record, status: 'aprovado' };
+    const result = await window.dataSdk.update(updated);
+    if (result.isOk) showToast('Registro aprovado!', 'green');
+    else showToast('Erro ao aprovar.', 'red');
+  }
+
+  function confirmDelete(backendId) {
+    const dialog = document.getElementById('confirm-dialog');
+    dialog.style.display = 'block';
+    dialog.innerHTML = `
+      <div class="confirm-overlay" onclick="closeConfirm()">
+        <div onclick="event.stopPropagation()" class="rounded-2xl p-6 max-w-sm mx-4" style="background:var(--clr-surface);border:1px solid rgba(255,255,255,0.1);">
+          <p class="font-semibold mb-2">Confirmar exclusão?</p>
+          <p class="text-sm opacity-60 mb-4">Esta ação não pode ser desfeita.</p>
+          <div class="flex gap-2">
+            <button onclick="closeConfirm()" class="flex-1 py-2 rounded-lg text-sm font-medium" style="background:rgba(255,255,255,0.1);">Cancelar</button>
+            <button onclick="doDelete('${backendId}')" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:#ef4444;color:#fff;">Excluir</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function closeConfirm() { document.getElementById('confirm-dialog').style.display = 'none'; }
+
+  function showConfirmDialog(title, content, onConfirm) {
+    const dialog = document.getElementById('confirm-dialog');
+    dialog.style.display = 'block';
+    dialog.innerHTML = `
+      <div class="confirm-overlay" onclick="closeConfirm()">
+        <div onclick="event.stopPropagation()" class="rounded-2xl p-6 max-w-sm mx-4" style="background:var(--clr-surface);border:1px solid rgba(255,255,255,0.1);">
+          <p class="font-semibold mb-3" style="font-size:16px;">${title}</p>
+          <div class="mb-4" style="color:var(--clr-text);">${content}</div>
+          <div class="flex gap-2">
+            <button onclick="closeConfirm()" class="flex-1 py-2 rounded-lg text-sm font-medium" style="background:rgba(255,255,255,0.1);">Cancelar</button>
+            <button onclick="confirmDialogAction()" class="flex-1 py-2 rounded-lg text-sm font-bold" style="background:var(--clr-primary);color:#fff;">Confirmar</button>
+          </div>
+        </div>
+      </div>
+    `;
+    window.confirmDialogCallback = onConfirm;
+  }
+
+  function confirmDialogAction() {
+    closeConfirm();
+    if (window.confirmDialogCallback) { window.confirmDialogCallback(); }
+  }
+
+  // ---- Toast ----
+  function showToast(msg, color) {
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.style.background = color === 'green' ? '#16a34a' : color === 'red' ? '#dc2626' : '#ea580c';
+    t.style.color = '#fff';
+    t.style.fontWeight = '600';
+    t.style.fontSize = '14px';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+
+  // Geocodificar CEP usando Open Street Map Nominatim
+  async function geocodeZipcode(zipcode) {
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${zipcode}&country=BR&format=json&limit=1`);
+      const data = await response.json();
+      if (data && data.length > 0) {
+        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      }
+    } catch (e) {
+      console.error('Geocoding error:', e);
+    }
+    return null;
+  }
+
+  // ---- Init ----
+  document.addEventListener('DOMContentLoaded', () => {
+    initMap();
+    lucide.createIcons();
+    
+    // Auto-detectar localização do usuário ao carregar
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          userLat = pos.coords.latitude;
+          userLng = pos.coords.longitude;
+        },
+        () => { /* fallback to defaults */ }
+      );
+    }
+  });
+</script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9ea59b9214aef610',t:'MTc3NTg2NDU0My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
